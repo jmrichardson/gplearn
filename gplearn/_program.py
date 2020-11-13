@@ -16,6 +16,7 @@ from sklearn.utils.random import sample_without_replacement
 
 from .functions import _Function
 from .utils import check_random_state
+import re
 
 
 class _Program(object):
@@ -187,34 +188,41 @@ class _Program(object):
         function = self.function_set[function]
         program = [function]
         terminal_stack = [function.arity]
+        function_stack = [function.name]
 
         while terminal_stack:
             depth = len(terminal_stack)
             choice = self.n_features + len(self.function_set)
             choice = random_state.randint(choice)
-            # Determine if we are adding a function or terminal
-            if (depth < max_depth) and (method == 'full' or
-                                        choice <= len(self.function_set)):
+
+            # If function ends in _#, then # is number of inputs requiring scalars
+            arity_count = 0
+            match = re.match(".*_(\d+)$", function_stack[-1])
+            if match:
+                arity_count = int(match.group(1))
+
+            fname = function.name
+
+            # Determine if we are adding a function or terminal, Do not add function if arity requires scalar
+            if (depth < max_depth) and (method == 'full' or choice <= len(self.function_set)) and (terminal_stack[-1] > arity_count):
                 function = random_state.randint(len(self.function_set))
                 function = self.function_set[function]
                 program.append(function)
                 terminal_stack.append(function.arity)
+                function_stack.append(function.name)
+
             else:
-                # We need a terminal, add a variable or constant
-                if self.const_range is not None:
-                    terminal = random_state.randint(self.n_features + 1)
+                if terminal_stack[-1] <= arity_count:
+                    # Add scalar if function requires
+                    terminal = float(random_state.randint(*self.const_range))
                 else:
+                    # Add data variable
                     terminal = random_state.randint(self.n_features)
-                if terminal == self.n_features:
-                    terminal = random_state.uniform(*self.const_range)
-                    if self.const_range is None:
-                        # We should never get here
-                        raise ValueError('A constant was produced with '
-                                         'const_range=None.')
                 program.append(terminal)
                 terminal_stack[-1] -= 1
                 while terminal_stack[-1] == 0:
                     terminal_stack.pop()
+                    function_stack.pop()
                     if not terminal_stack:
                         return program
                     terminal_stack[-1] -= 1
@@ -359,7 +367,7 @@ class _Program(object):
         if isinstance(node, float):
             return np.repeat(node, X.shape[0])
         if isinstance(node, int):
-            return X[:, node]
+            return X.iloc[:, node]
 
         apply_stack = []
 
@@ -374,10 +382,39 @@ class _Program(object):
             while len(apply_stack[-1]) == apply_stack[-1][0].arity + 1:
                 # Apply functions that have sufficient arguments
                 function = apply_stack[-1][0]
+                # fname = function.name
+                # arity = function.arity
+
+                # terminals = [np.repeat(t, X.shape[0]) if isinstance(t, float)
+                             # else X[:, t] if isinstance(t, int)
+                             # else t for t in apply_stack[-1][1:]]
+
                 terminals = [np.repeat(t, X.shape[0]) if isinstance(t, float)
-                             else X[:, t] if isinstance(t, int)
-                             else t for t in apply_stack[-1][1:]]
+                            else np.array(X.iloc[:, t]).squeeze() if isinstance(t, int)
+                            else np.array(t).squeeze() for t in apply_stack[-1][1:]]
+
+                # terminals = []
+                # for t in apply_stack[-1][1:]:
+                    # if isinstance(t, int):
+                        # terminals.append(np.array(X.iloc[:, t]).squeeze())
+                    # elif isinstance(t, float):
+                        # terminals.append(np.repeat(t, X.shape[0]))
+                    # else:
+                        # terminals.append(np.array(t).squeeze())
+
+                # if not len(set([len(t) for t in terminals])) == 1:
+                    # print("wtf")
+                # length_terminals = len(terminals)
+                # if length_terminals != arity:
+                    # print("here")
+
                 intermediate_result = function(*terminals)
+
+                length_X = len(X)
+                length_results = len(intermediate_result)
+                if length_X != length_results:
+                    print("yo")
+
                 if len(apply_stack) != 1:
                     apply_stack.pop()
                     apply_stack[-1].append(intermediate_result)
@@ -459,7 +496,14 @@ class _Program(object):
             The raw fitness of the program.
 
         """
+        import pandas as pd
         y_pred = self.execute(X)
+        y_pred = pd.DataFrame(y_pred)
+        y_pred = y_pred.set_index(X.index)
+        y_pred = np.array(y_pred.reindex(y.index)).squeeze()
+        sample_weight = np.array(pd.DataFrame(sample_weight).set_index(X.index).reindex(y.index)).squeeze()
+        y = np.array(y).squeeze()
+
         if self.transformer:
             y_pred = self.transformer(y_pred)
         raw_fitness = self.metric(y, y_pred, sample_weight)
