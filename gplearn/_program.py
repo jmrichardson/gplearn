@@ -200,7 +200,6 @@ class _Program(object):
             match = re.match(".*_(\d+)$", function_stack[-1])
             if match:
                 arity_count = int(match.group(1))
-
             fname = function.name
 
             # Determine if we are adding a function or terminal, Do not add function if arity requires scalar
@@ -530,7 +529,7 @@ class _Program(object):
         penalty = parsimony_coefficient * len(self.program) * self.metric.sign
         return self.raw_fitness_ - penalty
 
-    def get_subtree(self, random_state, program=None):
+    def get_subtree(self, random_state, program=None, node_func=None):
         """Get a random subtree from the program.
 
         Parameters
@@ -552,13 +551,22 @@ class _Program(object):
             program = self.program
         # Choice of crossover points follows Koza's (1992) widely used approach
         # of choosing functions 90% of the time and leaves 10% of the time.
-        probs = np.array([0.9 if isinstance(node, _Function) else 0.1
-                          for node in program])
+
+        # If start node needs to be a function
+        if node_func is None:
+            probs = np.array([0.9 if isinstance(node, _Function) else 0.1 for node in program])
+        elif node_func:
+            probs = np.array([1 if isinstance(node, _Function) else 0 for node in program])
+        else:
+            probs = np.array([0 if isinstance(node, _Function) else 1 for node in program])
         probs = np.cumsum(probs / probs.sum())
         start = np.searchsorted(probs, random_state.uniform())
 
         stack = 1
         end = start
+
+        # is_func = True if isinstance(node, _Function) else False
+
         while stack > end - start:
             node = program[end]
             if isinstance(node, _Function):
@@ -593,10 +601,15 @@ class _Program(object):
 
         """
         # Get a subtree to replace
-        start, end = self.get_subtree(random_state)
+        start, end, = self.get_subtree(random_state)
         removed = range(start, end)
-        # Get a subtree to donate
-        donor_start, donor_end = self.get_subtree(random_state, donor)
+
+        # Is start node of subtree a function or leaf
+        node = self.program[start]
+        node_func = True if isinstance(node, _Function) else False
+
+        # Get a subtree to donate (Must have similar start node as original)
+        donor_start, donor_end, = self.get_subtree(random_state, donor, node_func=node_func)
         donor_removed = list(set(range(len(donor))) -
                              set(range(donor_start, donor_end)))
         # Insert genetic material from donor
@@ -652,8 +665,13 @@ class _Program(object):
         # Get a subtree to replace
         start, end = self.get_subtree(random_state)
         subtree = self.program[start:end]
+
+        # Is start node of subtree a function or leaf
+        node = self.program[start]
+        node_func = True if isinstance(node, _Function) else False
+
         # Get a subtree of the subtree to hoist
-        sub_start, sub_end = self.get_subtree(random_state, subtree)
+        sub_start, sub_end = self.get_subtree(random_state, subtree, node_func=node_func)
         hoist = subtree[sub_start:sub_end]
         # Determine which nodes were removed for plotting
         removed = list(set(range(start, end)) -
@@ -682,29 +700,15 @@ class _Program(object):
         program = copy(self.program)
 
         # Get the nodes to modify
-        mutate = np.where(random_state.uniform(size=len(program)) <
-                          self.p_point_replace)[0]
+        mutate = np.where(random_state.uniform(size=len(program)) < self.p_point_replace)[0]
 
         for node in mutate:
-            if isinstance(program[node], _Function):
-                arity = program[node].arity
-                # Find a valid replacement with same arity
-                replacement = len(self.arities[arity])
-                replacement = random_state.randint(replacement)
-                replacement = self.arities[arity][replacement]
-                program[node] = replacement
-            else:
-                # We've got a terminal, add a const or variable
-                if self.const_range is not None:
-                    terminal = random_state.randint(self.n_features + 1)
+            # Do not mutate functions (only leafs)
+            if not isinstance(program[node], _Function):
+                if isinstance(program[node], float):
+                    terminal = float(random_state.randint(*self.const_range))
                 else:
                     terminal = random_state.randint(self.n_features)
-                if terminal == self.n_features:
-                    terminal = random_state.uniform(*self.const_range)
-                    if self.const_range is None:
-                        # We should never get here
-                        raise ValueError('A constant was produced with '
-                                         'const_range=None.')
                 program[node] = terminal
 
         return program, list(mutate)
