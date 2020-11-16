@@ -37,16 +37,17 @@ class _Function(object):
 
     """
 
-    def __init__(self, function, name, arity):
+    def __init__(self, function, name, arity, parms=0):
         self.function = function
         self.name = name
         self.arity = arity
+        self.parms = parms
 
     def __call__(self, *args):
         return self.function(*args)
 
 
-def make_function(function, name, arity, wrap=True):
+def make_function(function, name, arity, parms=None, wrap=True):
     """Make a function node, a representation of a mathematical relationship.
 
     This factory function creates a function node, one of the core nodes in any
@@ -89,7 +90,11 @@ def make_function(function, name, arity, wrap=True):
         raise ValueError('wrap must be an bool, got %s' % type(wrap))
 
     # Check output shape
-    args = [np.ones(100)+1 for _ in range(arity)]
+    if parms is not None:
+        args = [np.ones(100)+1 for _ in range(arity - parms)]
+        args = args + [20. for _ in range(parms)]
+    else:
+        args = [np.ones(100)+1 for _ in range(arity)]
     try:
         function(*args)
     except ValueError:
@@ -115,10 +120,12 @@ def make_function(function, name, arity, wrap=True):
     if wrap:
         return _Function(function=wrap_non_picklable_objects(function),
                          name=name,
-                         arity=arity)
+                         arity=arity,
+                         parms=parms)
     return _Function(function=function,
                      name=name,
-                     arity=arity)
+                     arity=arity,
+                     parms=parms)
 
 
 def _protected_division(x1, x2):

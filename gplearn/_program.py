@@ -196,14 +196,14 @@ class _Program(object):
             choice = random_state.randint(choice)
 
             # If function ends in _#, then # is number of inputs requiring scalars
-            arity_count = 0
-            match = re.match(".*_(\d+)$", function_stack[-1])
-            if match:
-                arity_count = int(match.group(1))
-            fname = function.name
+            # arity_count = 0
+            # match = re.match(".*_(\d+)$", function_stack[-1])
+            # if match:
+                # arity_count = int(match.group(1))
+            # fname = function.name
 
             # Determine if we are adding a function or terminal, Do not add function if arity requires scalar
-            if (depth < max_depth) and (method == 'full' or choice <= len(self.function_set)) and (terminal_stack[-1] > arity_count):
+            if (depth < max_depth) and (method == 'full' or choice <= len(self.function_set)) and (terminal_stack[-1] > function.parms):
                 function = random_state.randint(len(self.function_set))
                 function = self.function_set[function]
                 program.append(function)
@@ -211,7 +211,7 @@ class _Program(object):
                 function_stack.append(function.name)
 
             else:
-                if terminal_stack[-1] <= arity_count:
+                if terminal_stack[-1] <= function.parms:
                     # Add scalar if function requires
                     terminal = float(random_state.randint(*self.const_range))
                 else:
@@ -223,6 +223,8 @@ class _Program(object):
                     terminal_stack.pop()
                     function_stack.pop()
                     if not terminal_stack:
+                        if isinstance(program[1], float):
+                            raise Exceptions("Cannot have first arity as float")
                         return program
                     terminal_stack[-1] -= 1
 
@@ -364,7 +366,8 @@ class _Program(object):
         # Check for single-node programs
         node = self.program[0]
         if isinstance(node, float):
-            return np.repeat(node, X.shape[0])
+            return node
+            # return np.repeat(node, X.shape[0])
         if isinstance(node, int):
             return X.iloc[:, node]
 
@@ -388,31 +391,24 @@ class _Program(object):
                              # else X[:, t] if isinstance(t, int)
                              # else t for t in apply_stack[-1][1:]]
 
-                terminals = [np.repeat(t, X.shape[0]) if isinstance(t, float)
+                # terminals = [np.repeat(t, X.shape[0]) if isinstance(t, float)
+                            # else np.array(X.iloc[:, t]).squeeze() if isinstance(t, int)
+                            # else np.array(t).squeeze() for t in apply_stack[-1][1:]]
+
+                terminals = [t if isinstance(t, float)
                             else np.array(X.iloc[:, t]).squeeze() if isinstance(t, int)
                             else np.array(t).squeeze() for t in apply_stack[-1][1:]]
 
-                # terminals = []
-                # for t in apply_stack[-1][1:]:
-                    # if isinstance(t, int):
-                        # terminals.append(np.array(X.iloc[:, t]).squeeze())
-                    # elif isinstance(t, float):
-                        # terminals.append(np.repeat(t, X.shape[0]))
-                    # else:
-                        # terminals.append(np.array(t).squeeze())
-
-                # if not len(set([len(t) for t in terminals])) == 1:
-                    # print("wtf")
-                # length_terminals = len(terminals)
-                # if length_terminals != arity:
-                    # print("here")
 
                 intermediate_result = function(*terminals)
 
+                # if (intermediate_result == intermediate_result[0]).all():
+                    # print("wtf")
+
                 length_X = len(X)
                 length_results = len(intermediate_result)
-                if length_X != length_results:
-                    print("yo")
+                # if length_X != length_results:
+                    # print("yo")
 
                 if len(apply_stack) != 1:
                     apply_stack.pop()
@@ -529,7 +525,7 @@ class _Program(object):
         penalty = parsimony_coefficient * len(self.program) * self.metric.sign
         return self.raw_fitness_ - penalty
 
-    def get_subtree(self, random_state, program=None, node_func=None):
+    def get_subtree(self, random_state, program=None, node_float=None):
         """Get a random subtree from the program.
 
         Parameters
@@ -553,19 +549,26 @@ class _Program(object):
         # of choosing functions 90% of the time and leaves 10% of the time.
 
         # If start node needs to be a function
-        if node_func is None:
-            probs = np.array([0.9 if isinstance(node, _Function) else 0.1 for node in program])
-        elif node_func:
-            probs = np.array([1 if isinstance(node, _Function) else 0 for node in program])
+        if node_float is True:
+            # start node must be float
+            probs = np.array([1 if isinstance(node, float) else 0 for node in program])
         else:
-            probs = np.array([0 if isinstance(node, _Function) else 1 for node in program])
+            # start node must be function or int (data)
+            probs = np.array([0.9 if isinstance(node, _Function)
+                              else 0.1 if isinstance(node, int)
+                              else 0 for node in program])
         probs = np.cumsum(probs / probs.sum())
         start = np.searchsorted(probs, random_state.uniform())
 
         stack = 1
         end = start
 
-        # is_func = True if isinstance(node, _Function) else False
+        node = program[start]
+        is_float = True if isinstance(node, float) else False
+
+        if node_float and not is_float:
+            # Here because no floats in program
+            return None, None
 
         while stack > end - start:
             node = program[end]
@@ -600,22 +603,30 @@ class _Program(object):
             The flattened tree representation of the program.
 
         """
-        # Get a subtree to replace
-        start, end, = self.get_subtree(random_state)
-        removed = range(start, end)
 
-        # Is start node of subtree a function or leaf
-        node = self.program[start]
-        node_func = True if isinstance(node, _Function) else False
+        # Loop until we get an appropriate subtree donor
+        # If  start node to be replaced is a float, sometimes donor doesn't have a float to give
+        while True:
+            # Get a subtree to replace
+            start, end, = self.get_subtree(random_state)
+            removed = range(start, end)
 
-        # Get a subtree to donate (Must have similar start node as original)
-        donor_start, donor_end, = self.get_subtree(random_state, donor, node_func=node_func)
+            # Is start node of subtree a function or leaf
+            node = self.program[start]
+            node_float = True if isinstance(node, float) else False
+
+            # Get a subtree to donate (Must have start node float if replacement start node is float)
+            donor_start, donor_end, = self.get_subtree(random_state, donor, node_float=node_float)
+            if donor_start is not None:
+                break
+
         donor_removed = list(set(range(len(donor))) -
                              set(range(donor_start, donor_end)))
         # Insert genetic material from donor
-        return (self.program[:start] +
-                donor[donor_start:donor_end] +
-                self.program[end:]), removed, donor_removed
+        program = (self.program[:start] + donor[donor_start:donor_end] + self.program[end:])
+        if isinstance(program[0], float):
+            raise Exception("Cannot start program with float")
+        return program, removed, donor_removed
 
     def subtree_mutation(self, random_state):
         """Perform the subtree mutation operation on the program.
@@ -662,16 +673,21 @@ class _Program(object):
             The flattened tree representation of the program.
 
         """
-        # Get a subtree to replace
-        start, end = self.get_subtree(random_state)
-        subtree = self.program[start:end]
 
-        # Is start node of subtree a function or leaf
-        node = self.program[start]
-        node_func = True if isinstance(node, _Function) else False
+        while True:
+            # Get a subtree to replace
+            start, end = self.get_subtree(random_state)
+            subtree = self.program[start:end]
 
-        # Get a subtree of the subtree to hoist
-        sub_start, sub_end = self.get_subtree(random_state, subtree, node_func=node_func)
+            # Is start node of subtree a function or leaf
+            node = self.program[start]
+            node_float = True if isinstance(node, float) else False
+
+            # Get a subtree of the subtree to hoist
+            sub_start, sub_end = self.get_subtree(random_state, subtree, node_float=node_float)
+            if sub_start is not None:
+                break
+
         hoist = subtree[sub_start:sub_end]
         # Determine which nodes were removed for plotting
         removed = list(set(range(start, end)) -
@@ -705,10 +721,10 @@ class _Program(object):
         for node in mutate:
             # Do not mutate functions (only leafs)
             if not isinstance(program[node], _Function):
-                if isinstance(program[node], float):
-                    terminal = float(random_state.randint(*self.const_range))
-                else:
+                if isinstance(program[node], int):
                     terminal = random_state.randint(self.n_features)
+                else:
+                    terminal = float(random_state.randint(*self.const_range))
                 program[node] = terminal
 
         return program, list(mutate)
