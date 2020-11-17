@@ -189,29 +189,23 @@ class _Program(object):
         program = [function]
         terminal_stack = [function.arity]
         function_stack = [function.name]
+        parms_stack = [function.parms]
 
         while terminal_stack:
             depth = len(terminal_stack)
             choice = self.n_features + len(self.function_set)
             choice = random_state.randint(choice)
 
-            # If function ends in _#, then # is number of inputs requiring scalars
-            # arity_count = 0
-            # match = re.match(".*_(\d+)$", function_stack[-1])
-            # if match:
-                # arity_count = int(match.group(1))
-            # fname = function.name
-
             # Determine if we are adding a function or terminal, Do not add function if arity requires scalar
-            if (depth < max_depth) and (method == 'full' or choice <= len(self.function_set)) and (terminal_stack[-1] > function.parms):
+            if (depth < max_depth) and (method == 'full' or choice <= len(self.function_set)) and (terminal_stack[-1] > parms_stack[-1]):
                 function = random_state.randint(len(self.function_set))
                 function = self.function_set[function]
                 program.append(function)
                 terminal_stack.append(function.arity)
                 function_stack.append(function.name)
-
+                parms_stack.append(function.parms)
             else:
-                if terminal_stack[-1] <= function.parms:
+                if terminal_stack[-1] <= parms_stack[-1]:
                     # Add scalar if function requires
                     terminal = float(random_state.randint(*self.const_range))
                 else:
@@ -222,6 +216,7 @@ class _Program(object):
                 while terminal_stack[-1] == 0:
                     terminal_stack.pop()
                     function_stack.pop()
+                    parms_stack.pop()
                     if not terminal_stack:
                         if isinstance(program[1], float):
                             raise Exceptions("Cannot have first arity as float")
@@ -400,6 +395,8 @@ class _Program(object):
                             else np.array(t).squeeze() for t in apply_stack[-1][1:]]
 
 
+                # print(function.name)
+                # print(*terminals)
                 intermediate_result = function(*terminals)
 
                 # if (intermediate_result == intermediate_result[0]).all():
@@ -407,8 +404,6 @@ class _Program(object):
 
                 length_X = len(X)
                 length_results = len(intermediate_result)
-                # if length_X != length_results:
-                    # print("yo")
 
                 if len(apply_stack) != 1:
                     apply_stack.pop()
