@@ -486,12 +486,12 @@ class _Program(object):
             The raw fitness of the program.
 
         """
+        # y_pred = np.array(pd.DataFrame(y_pred).set_index(X.index).reindex(y.index)).squeeze()
+
         import pandas as pd
         y_pred = self.execute(X)
-        y_pred = pd.DataFrame(y_pred)
-        y_pred = y_pred.set_index(X.index)
-        y_pred = np.array(y_pred.reindex(y.index)).squeeze()
-        sample_weight = np.array(pd.DataFrame(sample_weight).set_index(X.index).reindex(y.index)).squeeze()
+        y_pred = pd.DataFrame(y_pred).set_index(X.index).reindex(y.index)
+        y_pred = np.array(y_pred).squeeze()
         y = np.array(y).squeeze()
 
         if self.transformer:

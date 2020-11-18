@@ -36,7 +36,8 @@ MAX_INT = np.iinfo(np.int32).max
 
 def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
     """Private function used to build a batch of programs within a job."""
-    n_samples, n_features = X.shape
+    n_features = X.shape[1]
+    n_samples = y.shape[0]
     # Unpack parameters
     tournament_size = params['tournament_size']
     function_set = params['function_set']
