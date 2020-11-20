@@ -714,13 +714,19 @@ class _Program(object):
         mutate = np.where(random_state.uniform(size=len(program)) < self.p_point_replace)[0]
 
         for node in mutate:
-            # Do not mutate functions (only leafs)
-            if not isinstance(program[node], _Function):
-                if isinstance(program[node], int):
-                    terminal = random_state.randint(self.n_features)
-                else:
-                    terminal = float(random_state.randint(*self.const_range))
+
+            # Only mutate scalar parameters (not functions or data)
+            if isinstance(program[node], float):
+                terminal = float(random_state.randint(*self.const_range))
                 program[node] = terminal
+
+        # Do not mutate functions (only leafs)
+            # if not isinstance(program[node], _Function):
+                # if isinstance(program[node], int):
+                    # terminal = random_state.randint(self.n_features)
+                # else:
+                    # terminal = float(random_state.randint(*self.const_range))
+                # program[node] = terminal
 
         return program, list(mutate)
 
